@@ -40,6 +40,7 @@ import { SearchResult, DanmakuFilterConfig } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
+import DownloadEpisodeSelector from '@/components/DownloadEpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 import DoubanComments from '@/components/DoubanComments';
 import DanmakuFilterSettings from '@/components/DanmakuFilterSettings';
@@ -500,6 +501,9 @@ function PlayPageClient() {
   const [isEpisodeSelectorCollapsed, setIsEpisodeSelectorCollapsed] =
     useState(false);
 
+  // 下载选集面板显示状态
+  const [showDownloadSelector, setShowDownloadSelector] = useState(false);
+
   // 换源加载状态
   const [isVideoLoading, setIsVideoLoading] = useState(true);
   const [videoLoadingStage, setVideoLoadingStage] = useState<
@@ -751,6 +755,76 @@ function PlayPageClient() {
     const newUrl = detailData?.episodes[episodeIndex] || '';
     if (newUrl !== videoUrl) {
       setVideoUrl(newUrl);
+    }
+  };
+
+  // 处理下载指定集数（支持批量下载）
+  const handleDownloadEpisode = async (episodeIndexes: number[]) => {
+    if (!detail || !detail.episodes || episodeIndexes.length === 0) {
+      if (artPlayerRef.current) {
+        artPlayerRef.current.notice.show = '无法获取视频地址';
+      }
+      return;
+    }
+
+    const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
+    const origin = `${window.location.protocol}//${window.location.host}`;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // 批量处理下载
+    for (const episodeIndex of episodeIndexes) {
+      if (episodeIndex >= detail.episodes.length) {
+        failCount++;
+        continue;
+      }
+
+      const episodeUrl = detail.episodes[episodeIndex];
+      const proxyUrl = externalPlayerAdBlock
+        ? `${origin}/api/proxy-m3u8?url=${encodeURIComponent(episodeUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
+        : episodeUrl;
+      const isM3u8 = episodeUrl.toLowerCase().includes('.m3u8') || episodeUrl.toLowerCase().includes('/m3u8/');
+
+      if (isM3u8) {
+        // M3U8格式 - 使用新的下载器，TS 格式
+        try {
+          const downloadTitle = `${videoTitle}_第${episodeIndex + 1}集`;
+          await addDownloadTask(proxyUrl, downloadTitle, 'TS');
+          successCount++;
+        } catch (error) {
+          console.error(`添加下载任务失败 (第${episodeIndex + 1}集):`, error);
+          failCount++;
+        }
+      } else {
+        // 普通视频格式 - 直接下载
+        try {
+          const a = document.createElement('a');
+          a.href = proxyUrl;
+          a.download = `${videoTitle}_第${episodeIndex + 1}集.mp4`;
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          successCount++;
+          // 添加延迟避免浏览器阻止多个下载
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (error) {
+          console.error(`下载失败 (第${episodeIndex + 1}集):`, error);
+          failCount++;
+        }
+      }
+    }
+
+    // 显示结果通知
+    if (artPlayerRef.current) {
+      if (failCount === 0) {
+        artPlayerRef.current.notice.show = `已添加 ${successCount} 个下载任务！`;
+      } else if (successCount === 0) {
+        artPlayerRef.current.notice.show = '下载失败，请重试';
+      } else {
+        artPlayerRef.current.notice.show = `成功 ${successCount} 个，失败 ${failCount} 个`;
+      }
     }
   };
 
@@ -3646,47 +3720,9 @@ function PlayPageClient() {
                       <div className='flex gap-1.5 lg:flex-wrap'>
                         {/* 下载按钮 */}
                         <button
-                          onClick={async (e) => {
+                          onClick={(e) => {
                             e.preventDefault();
-                            // 获取正确的代理 URL - 使用浏览器实际访问的地址
-                            const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
-                            const origin = `${window.location.protocol}//${window.location.host}`;
-                            console.log('下载按钮 - origin:', origin);
-                            console.log('下载按钮 - window.location:', window.location.href);
-                            const proxyUrl = externalPlayerAdBlock
-                              ? `${origin}/api/proxy-m3u8?url=${encodeURIComponent(videoUrl)}&source=${encodeURIComponent(currentSource)}${tokenParam}`
-                              : videoUrl;
-                            console.log('下载按钮 - proxyUrl:', proxyUrl);
-                            const isM3u8 = videoUrl.toLowerCase().includes('.m3u8') || videoUrl.toLowerCase().includes('/m3u8/');
-
-                            if (isM3u8) {
-                              // M3U8格式 - 使用新的下载器，TS 格式
-                              try {
-                                const downloadTitle = `${videoTitle}_第${currentEpisodeIndex + 1}集`;
-                                await addDownloadTask(proxyUrl, downloadTitle, 'TS');
-                                if (artPlayerRef.current) {
-                                  artPlayerRef.current.notice.show = '已添加到下载队列！';
-                                }
-                              } catch (error) {
-                                console.error('添加下载任务失败:', error);
-                                if (artPlayerRef.current) {
-                                  artPlayerRef.current.notice.show = '添加下载失败，请重试';
-                                }
-                              }
-                            } else {
-                              // 普通视频格式 - 直接下载
-                              const a = document.createElement('a');
-                              a.href = proxyUrl;
-                              a.download = `${videoTitle}_第${currentEpisodeIndex + 1}集.mp4`;
-                              a.target = '_blank';
-                              document.body.appendChild(a);
-                              a.click();
-                              document.body.removeChild(a);
-
-                              if (artPlayerRef.current) {
-                                artPlayerRef.current.notice.show = '开始下载...';
-                              }
-                            }
+                            setShowDownloadSelector(true);
                           }}
                           className='group relative flex items-center justify-center gap-1 w-8 h-8 lg:w-auto lg:h-auto lg:px-2 lg:py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-xs font-medium rounded-md transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer overflow-hidden border border-green-400 flex-shrink-0'
                           title='下载视频'
@@ -4125,6 +4161,17 @@ function PlayPageClient() {
 
       {/* Toast通知 */}
       {toast && <Toast {...toast} />}
+
+      {/* 下载选集面板 */}
+      <DownloadEpisodeSelector
+        isOpen={showDownloadSelector}
+        onClose={() => setShowDownloadSelector(false)}
+        totalEpisodes={totalEpisodes}
+        episodesTitles={detail?.episodes_titles || []}
+        videoTitle={videoTitle}
+        currentEpisodeIndex={currentEpisodeIndex}
+        onDownload={handleDownloadEpisode}
+      />
 
       {/* 弹幕过滤设置对话框 */}
       <DanmakuFilterSettings
