@@ -8,13 +8,15 @@ export interface EmbyCachedEntry<T> {
 
 // 缓存配置
 const EMBY_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6小时
+const EMBY_VIEWS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1天
 const EMBY_CACHE: Map<string, EmbyCachedEntry<any>> = new Map();
+const EMBY_VIEWS_CACHE_KEY = 'emby:views';
 
 /**
  * 生成 Emby 列表缓存键
  */
-function makeListCacheKey(page: number, pageSize: number): string {
-  return `emby:list:${page}:${pageSize}`;
+function makeListCacheKey(page: number, pageSize: number, parentId?: string): string {
+  return parentId ? `emby:list:${page}:${pageSize}:${parentId}` : `emby:list:${page}:${pageSize}`;
 }
 
 /**
@@ -22,9 +24,10 @@ function makeListCacheKey(page: number, pageSize: number): string {
  */
 export function getCachedEmbyList(
   page: number,
-  pageSize: number
+  pageSize: number,
+  parentId?: string
 ): any | null {
-  const key = makeListCacheKey(page, pageSize);
+  const key = makeListCacheKey(page, pageSize, parentId);
   const entry = EMBY_CACHE.get(key);
   if (!entry) return null;
 
@@ -43,10 +46,11 @@ export function getCachedEmbyList(
 export function setCachedEmbyList(
   page: number,
   pageSize: number,
-  data: any
+  data: any,
+  parentId?: string
 ): void {
   const now = Date.now();
-  const key = makeListCacheKey(page, pageSize);
+  const key = makeListCacheKey(page, pageSize, parentId);
   EMBY_CACHE.set(key, {
     expiresAt: now + EMBY_CACHE_TTL_MS,
     data,
@@ -60,6 +64,33 @@ export function clearEmbyCache(): { cleared: number } {
   const size = EMBY_CACHE.size;
   EMBY_CACHE.clear();
   return { cleared: size };
+}
+
+/**
+ * 获取缓存的 Emby 媒体库列表
+ */
+export function getCachedEmbyViews(): any | null {
+  const entry = EMBY_CACHE.get(EMBY_VIEWS_CACHE_KEY);
+  if (!entry) return null;
+
+  // 检查是否过期
+  if (entry.expiresAt <= Date.now()) {
+    EMBY_CACHE.delete(EMBY_VIEWS_CACHE_KEY);
+    return null;
+  }
+
+  return entry.data;
+}
+
+/**
+ * 设置缓存的 Emby 媒体库列表
+ */
+export function setCachedEmbyViews(data: any): void {
+  const now = Date.now();
+  EMBY_CACHE.set(EMBY_VIEWS_CACHE_KEY, {
+    expiresAt: now + EMBY_VIEWS_CACHE_TTL_MS,
+    data,
+  });
 }
 
 /**

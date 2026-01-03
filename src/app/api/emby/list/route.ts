@@ -12,10 +12,11 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get('page') || '1');
   const pageSize = parseInt(searchParams.get('pageSize') || '20');
+  const parentId = searchParams.get('parentId') || undefined;
 
   try {
     // 检查缓存
-    const cached = getCachedEmbyList(page, pageSize);
+    const cached = getCachedEmbyList(page, pageSize, parentId);
     if (cached) {
       return NextResponse.json(cached);
     }
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest) {
 
     // 获取媒体列表
     const result = await client.getItems({
+      ParentId: parentId,
       IncludeItemTypes: 'Movie,Series',
       Recursive: true,
       Fields: 'Overview,ProductionYear',
@@ -94,7 +96,7 @@ export async function GET(request: NextRequest) {
     };
 
     // 缓存结果
-    setCachedEmbyList(page, pageSize, response);
+    setCachedEmbyList(page, pageSize, response, parentId);
 
     return NextResponse.json(response);
   } catch (error) {

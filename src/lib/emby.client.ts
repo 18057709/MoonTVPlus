@@ -51,6 +51,12 @@ interface GetItemsParams {
   searchTerm?: string;
 }
 
+interface EmbyView {
+  Id: string;
+  Name: string;
+  CollectionType?: string;
+}
+
 export class EmbyClient {
   private serverUrl: string;
   private apiKey?: string;
@@ -163,6 +169,49 @@ export class EmbyClient {
       console.error('[EmbyClient] getCurrentUser - Exception:', error);
       throw error;
     }
+  }
+
+  async getUserViews(): Promise<EmbyView[]> {
+    await this.ensureAuthenticated();
+
+    if (!this.userId) {
+      throw new Error('未配置 Emby 用户 ID，请在管理面板重新保存 Emby 配置');
+    }
+
+    const token = this.apiKey || this.authToken;
+    const url = `${this.serverUrl}/Users/${this.userId}/Views${token ? `?api_key=${token}` : ''}`;
+
+    console.log('[EmbyClient] getUserViews - URL:', url);
+
+    const response = await fetch(url);
+
+    // 如果是 401 错误且有用户名密码，尝试重新认证
+    if (response.status === 401 && this.username && this.password && !this.apiKey) {
+      console.log('[EmbyClient] Token expired, re-authenticating...');
+      const authResult = await this.authenticate(this.username, this.password);
+      this.authToken = authResult.AccessToken;
+      this.userId = authResult.User.Id;
+
+      // 重试请求
+      const retryUrl = `${this.serverUrl}/Users/${this.userId}/Views?api_key=${this.authToken}`;
+      const retryResponse = await fetch(retryUrl);
+
+      if (!retryResponse.ok) {
+        const errorText = await retryResponse.text();
+        throw new Error(`获取 Emby 媒体库列表失败 (${retryResponse.status}): ${errorText}`);
+      }
+
+      const retryData = await retryResponse.json();
+      return retryData.Items || [];
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`获取 Emby 媒体库列表失败 (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.Items || [];
   }
 
   async getItems(params: GetItemsParams): Promise<EmbyItemsResult> {
