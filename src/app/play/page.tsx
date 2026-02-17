@@ -8144,11 +8144,14 @@ function PlayPageClient() {
           poster={detail.poster}
           doubanId={
             // 特殊源使用 tmdb，其他使用 cms（通过 doubanId）
+            // 如果有豆瓣ID且不为0，传入doubanId
             detail.source === 'openlist' ||
             detail.source?.startsWith('emby') ||
             detail.source === 'xiaoya'
               ? undefined
-              : detail.douban_id
+              : detail.douban_id && detail.douban_id !== 0
+              ? detail.douban_id
+              : undefined
           }
           tmdbId={
             // 特殊源使用 tmdb
@@ -8161,9 +8164,11 @@ function PlayPageClient() {
           type={detail.type_name === '电影' ? 'movie' : 'tv'}
           cmsData={
             // 非特殊源使用 cms 数据
+            // 但如果有豆瓣ID且不为0，则不传入cmsData，优先使用豆瓣数据
             detail.source !== 'openlist' &&
             !detail.source?.startsWith('emby') &&
-            detail.source !== 'xiaoya'
+            detail.source !== 'xiaoya' &&
+            !(detail.douban_id && detail.douban_id !== 0)
               ? {
                   desc: detail.desc,
                   episodes: detail.episodes,
